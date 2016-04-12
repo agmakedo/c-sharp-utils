@@ -16,8 +16,12 @@ namespace Utility.PI
     {
         #region Data Members
         #region Private Members
+        // used when connecting to PI AF server
         private PISystem AFServer;
         private AFDatabase AFDB;
+
+        // used when connecting to PI DA Server
+        private PIServer DAServer;    
         #endregion
 
         #endregion
@@ -29,11 +33,11 @@ namespace Utility.PI
         public PIAssetFrameworkConnector() { }
         #endregion
 
-        #region Connect to AF Server
+        #region Connect to PI Server
         /// <summary>
-        /// Establish connection with PI AF server/database specified in this application's App.config file
+        /// Establish connection with PI AF server/database
         /// </summary>
-        public void Open(string piAFServer, string piAFDB)
+        public void ConnectToAssetFramework(string piAFServer, string piAFDB)
         {
             AFServer = new PISystems()[piAFServer];
             try
@@ -54,7 +58,50 @@ namespace Utility.PI
             }
 
         }
+
+        /// <summary>
+        /// Establish connection with PI AF server/database specified in this application's App.config file
+        /// </summary>
+        public void ConnectToDataArchive(string piDAServer)
+        {
+
+            try
+            {
+                // Attmepts to establish connection with AF Server
+                Logger.Log("Establishing connection to DA Server: " + piDAServer);
+                DAServer = new PIServers()[piDAServer];
+                Logger.Log("Connection Successful");
+            }
+            catch (Exception ex)
+            {
+                throw new System.Exception("Failed to connect to AF Server: " + piDAServer + " ERROR: " + ex.Message);
+            }
+
+        }
         #endregion
+
+
+        #region PI Data Archive C.R.U.D Methods
+        public void InsertDataArchiveRecord(string pointName, object value, string timestamp)
+        {
+            try
+            {
+                //
+                PIPoint piPoint = PIPoint.FindPIPoint(DAServer, pointName);
+                AFValue piPointValue = new AFValue(value, new AFTime(timestamp));
+                piPoint.UpdateValue(piPointValue, AFUpdateOption.Replace);
+            }
+            catch (Exception ex)
+            {
+                throw new System.Exception("Failed to insert record into server with the following error: " + ex.Message);
+            }
+        }
+
+        #endregion
+
+
+
+
 
         #region AF Element Tree Builder
         private void ConstructElementRoot(string rootElementName)
