@@ -7,7 +7,7 @@ using System.IO;
 using System.Configuration;
 using System.Threading.Tasks;
 
-namespace Utility.Email
+namespace RTUHM.Utility
 {
     class Emailer
     {
@@ -27,10 +27,14 @@ namespace Utility.Email
         /// <param name="attachment">
         /// optional: filename/path of email attachment
         /// </param>
-        public void Email(string subject, string body, string attachment=null)
+        public void Email(string subject, string body, string[] attachments=null)
         {
             // handle to smtp client object with specified SMTP host
             SmtpClient client = new SmtpClient(ConfigurationManager.AppSettings["SMTPServer"]);
+            // specify who is sending email message
+            MailAddress from = new MailAddress("RTUHM@sempra.com",
+                                               "RTU Health Monitor",
+                                               System.Text.Encoding.UTF8);
             // specify who is receiving email message
             string[] toAddresses = ConfigurationManager.AppSettings["ToRecipients"].Split(',');
             // specify carbon copy recipients
@@ -40,7 +44,7 @@ namespace Utility.Email
             // specify the message content.
             MailMessage message = new MailMessage();
             // add from recipients
-            message.From = new MailAddress("PIPR@sempra.com", "Peak Rose PI Loader", System.Text.Encoding.UTF8);
+            message.From = new MailAddress("RTUHM@sempra.com","RTU Health Monitor", System.Text.Encoding.UTF8);
             // add to recipients
             foreach (string toAddress in toAddresses)
             {
@@ -53,9 +57,12 @@ namespace Utility.Email
             }
 
             // add attachment to mail
-            if (attachment != null)
+            if (attachments != null)
             {
-                message.Attachments.Add(new Attachment(attachment));
+                foreach (string attachment in attachments)
+                {
+                    message.Attachments.Add(new Attachment(attachment));
+                }
             }
 
             // include body of email
@@ -68,7 +75,7 @@ namespace Utility.Email
             // construct local copy of email message
             // no handle to rename file. If desired, investigate FileSystemWatcher library
             client.DeliveryMethod = SmtpDeliveryMethod.SpecifiedPickupDirectory;
-            client.PickupDirectoryLocation = Path.GetFullPath(ConfigurationManager.AppSettings["PIPRExceedanceFolderPath"]);
+            client.PickupDirectoryLocation = Path.GetFullPath(ConfigurationManager.AppSettings["RTUHMReportFolderPath"]);
 
             client.Send(message);
 
