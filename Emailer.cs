@@ -11,8 +11,21 @@ namespace RTUHM.Utility
 {
     class Emailer
     {
-        public Emailer()
+        private string clientServer;
+        private string senderEmail;
+        private string senderName;
+        private string[] toRecipients;
+        private string[] ccRecipients;
+        private string localPath;
+
+        public Emailer(string client_server, string sender_email, string sender_name, string to_recips, string cc_recips, string local_path)
         {
+            clientServer = client_server;
+            senderEmail = sender_email;
+            senderName = sender_name;
+            toRecipients = to_recips.Split(',');
+            ccRecipients = cc_recips.Split(',');
+            localPath = local_path;    
         }
 
         /// <summary>
@@ -30,30 +43,20 @@ namespace RTUHM.Utility
         public void Email(string subject, string body, string[] attachments=null)
         {
             // handle to smtp client object with specified SMTP host
-            SmtpClient client = new SmtpClient(ConfigurationManager.AppSettings["SMTPServer"]);
-            // specify who is sending email message
-            MailAddress from = new MailAddress("RTUHM@sempra.com",
-                                               "RTU Health Monitor",
-                                               System.Text.Encoding.UTF8);
-            // specify who is receiving email message
-            string[] toAddresses = ConfigurationManager.AppSettings["ToRecipients"].Split(',');
-            // specify carbon copy recipients
-            string[] ccAddresses = ConfigurationManager.AppSettings["CcRecipients"].Split(',');
-
-
+            SmtpClient client = new SmtpClient(clientServer);
             // specify the message content.
             MailMessage message = new MailMessage();
             // add from recipients
-            message.From = new MailAddress("RTUHM@sempra.com","RTU Health Monitor", System.Text.Encoding.UTF8);
+            message.From = new MailAddress(senderEmail, senderName, System.Text.Encoding.UTF8);
             // add to recipients
-            foreach (string toAddress in toAddresses)
+            foreach (string toRecipient in toRecipients)
             {
-                message.To.Add(toAddress.Trim());
+                message.To.Add(toRecipient.Trim());
             }
             // add carbon copy recipients
-            foreach (string ccAddress in ccAddresses)
+            foreach (string ccRecipient in ccRecipients)
             {
-                message.CC.Add(ccAddress.Trim());
+                message.CC.Add(ccRecipient.Trim());
             }
 
             // add attachment to mail
@@ -75,7 +78,7 @@ namespace RTUHM.Utility
             // construct local copy of email message
             // no handle to rename file. If desired, investigate FileSystemWatcher library
             client.DeliveryMethod = SmtpDeliveryMethod.SpecifiedPickupDirectory;
-            client.PickupDirectoryLocation = Path.GetFullPath(ConfigurationManager.AppSettings["RTUHMReportFolderPath"]);
+            client.PickupDirectoryLocation = Path.GetFullPath(localPath);
 
             client.Send(message);
 
