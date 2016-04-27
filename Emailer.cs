@@ -7,7 +7,7 @@ using System.IO;
 using System.Configuration;
 using System.Threading.Tasks;
 
-namespace RTUHM.Utility
+namespace Utility.Email
 {
     class Emailer
     {
@@ -18,7 +18,7 @@ namespace RTUHM.Utility
         private string[] ccRecipients;
         private string localPath;
 
-        public Emailer(string client_server, string sender_email, string sender_name, string to_recips, string cc_recips, string local_path)
+        public Emailer(string client_server, string sender_email, string sender_name, string to_recips, string cc_recips, string local_path = null)
         {
             clientServer = client_server;
             senderEmail = sender_email;
@@ -77,8 +77,11 @@ namespace RTUHM.Utility
 
             // construct local copy of email message
             // no handle to rename file. If desired, investigate FileSystemWatcher library
-            client.DeliveryMethod = SmtpDeliveryMethod.SpecifiedPickupDirectory;
-            client.PickupDirectoryLocation = Path.GetFullPath(localPath);
+            if (localPath != null)
+            {
+                client.DeliveryMethod = SmtpDeliveryMethod.SpecifiedPickupDirectory;
+                client.PickupDirectoryLocation = Path.GetFullPath(localPath);
+            }
 
             client.Send(message);
 

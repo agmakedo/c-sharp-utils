@@ -48,5 +48,7 @@ namespace Utility.Log
             }
 
         }
+
+        public static string GetFullFilePath() { return fullFilePath; }
     }
 }

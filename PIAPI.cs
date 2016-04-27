@@ -12,16 +12,27 @@ using Utility.Log;
 
 namespace Utility.PI
 {
-    class PIAssetFrameworkConnector
+    class PIAPI
     {
         #region Data Members
         #region Private Members
+        // ENUM class determines methodology type when developering for PI
+        private enum PI_TYPE { AF, DA };
+        private PI_TYPE piType = PI_TYPE.AF;
+        
         // used when connecting to PI AF server
         private PISystem AFServer;
-        private AFDatabase AFDB;
-
+        private AFDatabase AFDB;       
+       
         // used when connecting to PI DA Server
         private PIServer DAServer;    
+        #endregion
+
+        #region Public Members
+        public delegate void PIFunction();
+        // AF Objects used to PI data specified by calling function
+        public AFNamedCollectionList<AFElement> AFElementCollection;
+
         #endregion
 
         #endregion
@@ -30,27 +41,25 @@ namespace Utility.PI
         /// <summary>
         /// Empty constructor
         /// </summary>
-        public PIAssetFrameworkConnector() { }
+        public PIAPI() { }
         #endregion
 
         #region Connect to PI Server
         /// <summary>
-        /// Establish connection with PI AF server/database
+        /// Establish connection to PI AF server
         /// </summary>
-        public void ConnectToAssetFramework(string piAFServer, string piAFDB)
-        {
-            AFServer = new PISystems()[piAFServer];
+        /// <param name="piAFServer">
+        /// String representation of PI AF Server
+        /// </param>
+        public void ConnectToAssetFramework(string piAFServer)
+        {            
             try
             {
                 // Attmepts to establish connection with AF Server
                 Logger.Log("Establishing connection to AF Server: " + piAFServer);
-                AFServer.Connect(); 
-                // If successful, Specific database is specified for AFServer object
-                Logger.Log("Establishing connection to " +
-                                      piAFServer + "'s " +
-                                      piAFDB + " database");
-                // assigned AF database object to specified AF DB name
-                AFDB = AFServer.Databases[piAFDB];
+                AFServer = new PISystems()[piAFServer];
+                piType = PI_TYPE.AF;
+                Logger.Log("Connection Successful");
             }
             catch (Exception ex)
             {
@@ -59,22 +68,45 @@ namespace Utility.PI
 
         }
 
-        /// <summary>
-        /// Establish connection with PI AF server/database specified in this application's App.config file
+        // <summary>
+        /// Establish connection to PI AF database
         /// </summary>
+        /// <param name="piAFDatabase">
+        /// String representation of PI AF database
+        /// </param>
+        public void ConnectToAFDatabase(string piAFDatabase)
+        {
+            try
+            {
+                Logger.Log("Connecting to AF Database: " + piAFDatabase);
+                AFDB = AFServer.Databases[piAFDatabase];
+                Logger.Log("Connection Successful");
+            }
+            catch (Exception ex)
+            {
+                throw new System.Exception("Failed to connect to AF Database: " + piAFDatabase + " ERROR: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Establish connection to PI Data Archive server
+        /// </summary>
+        /// <param name="piDAServer">
+        /// String representation of PI Data Archive Server
+        /// </param>
         public void ConnectToDataArchive(string piDAServer)
         {
-
             try
             {
                 // Attmepts to establish connection with AF Server
                 Logger.Log("Establishing connection to DA Server: " + piDAServer);
                 DAServer = new PIServers()[piDAServer];
+                piType = PI_TYPE.DA;
                 Logger.Log("Connection Successful");
             }
             catch (Exception ex)
             {
-                throw new System.Exception("Failed to connect to AF Server: " + piDAServer + " ERROR: " + ex.Message);
+                throw new System.Exception("Failed to connect to AF Server: " + piDAServer + " " + ex.Message);
             }
 
         }
@@ -131,35 +163,45 @@ namespace Utility.PI
 
 
         /// <summary>
-        /// Collect all AF elements with the specified template. Create dictionary record for each AF element. 
-        /// Key = AF Element's unique ID
+        /// Collect all AF Elements matching specified template name. Collection stored as publicly accessible object
+        /// called AFElementCollection.
         /// Value = AF Element's name
         /// </summary>
         /// <param name="templateName">
         /// String representation of AF Template name
         /// </param>
-        public Dictionary<string, string> FindElementsByTemplate(string templateName)
-        {
-            // List object to be returned to calling method
-            Dictionary<string, string> returnDict = new Dictionary<string, string>();
+        /// <param name="piFunction">
+        /// Optional: Delegate to custom callback method (Used to provide more dynamic functionality to generalized method)
+        /// </param>
+        /// <param name="pageSize">
+        /// Optional: Maximum amount of elements capable of being queried at a time (Default set to 10000 records/query)
+        /// </param>
+        public void FindElementsByTemplate(string templateName, PIFunction piFunction = null, int pageSize = 10000)
+        {          
+            int currentElementCount = 0; // defines the current amount of elements collected
+            int totalElementCount;       // defines the total amount of elements collected
 
-            Logger.Log("Searching for all AF Elements with " + templateName + " template");
-            AFNamedCollection<AFElement> collectedElements = AFElement.FindElementsByTemplate(AFDB, 
-                                                                                              null, 
-                                                                                              AFDB.ElementTemplates[templateName], 
-                                                                                              true, 
-                                                                                              AFSortField.Name, 
-                                                                                              AFSortOrder.Ascending, 
-                                                                                              10000);
-            Logger.Log("Returned " + collectedElements.Count + " records: ");
-            // loop through all elements found with specified AF Template and add its name to the list
-            foreach (AFElement collectedElement in collectedElements)
+            Logger.Log("Searching for all AF Elements with " + templateName + " template");            
+            do
             {
-                Logger.Log(collectedElement.Name);
-                returnDict.Add(collectedElement.ID.ToString(), collectedElement.Name);
-            }
+                AFElementCollection = AFElement.FindElementsByTemplate(
+                                        AFDB,                                   // specify AF database
+                                        null,                                   // start searching from root element
+                                        AFDB.ElementTemplates[templateName],    // define AFTemplate object from input 
+                                        true,                                   // include derived templates 
+                                        AFSortField.Name,                       // sort by name
+                                        AFSortOrder.Ascending,                  // sort name in ascending order
+                                        currentElementCount,                    // starting index of element collection
+                                        pageSize,                               // max amount of elements returned per call
+                                        out totalElementCount);                 // total objects returned that exist in db
 
-            return returnDict;
+                // break from loop if no elements are found
+                if (AFElementCollection == null) { Logger.Log("No elements found...", (int)Logger.LOGLEVEL.WARN); break; }
+                // call delegate function if one is provided
+                if (piFunction != null) { piFunction(); }
+                // increment the current element count by the total amount returned from the previous query
+                currentElementCount += totalElementCount;
+            } while (currentElementCount < totalElementCount);
         }
 
         /// <summary>
@@ -347,5 +389,121 @@ namespace Utility.PI
             AFServer.Disconnect();
         }
         #endregion
+    }
+
+    class PIMigrator
+    {
+        private PIServer srcServer;
+        private PIServer dstServer;
+
+        private IEnumerable<PIPoint> srcPIPointEnumerable;
+
+        #region Constructor
+        /// <summary>
+        /// Empty constructor
+        /// </summary>
+        public PIMigrator() {}
+        #endregion
+
+        /// <summary>
+        /// Establish connection to source & destination pi servers
+        /// </summary>
+        /// <param name="sourcePIServer">
+        /// String representation of Source PI Server
+        /// </param>
+        /// <param name="destinationPIServer">
+        /// String representation of Destination PI Server
+        /// </param>
+        public void ConnectToServers(string sourcePIServer, string destinationPIServer)
+        {
+            try
+            {
+                Logger.Log("Establishing connection to source Server: " + sourcePIServer);
+                srcServer = new PIServers()[sourcePIServer];
+                Logger.Log("Connection Successful");
+
+                Logger.Log("Establishing connection to destination Server: " + destinationPIServer);
+                dstServer = new PIServers()[destinationPIServer];
+                Logger.Log("Connection Successful");
+
+            }
+            catch (Exception ex)
+            {
+                throw new System.Exception("Failed to connect to Server: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Migrate PI Points to destination server using 
+        /// PI Point collection from source server based on input query and specified PI Point Attribute list
+        /// </summary>
+        /// <param name="piPointQuery">
+        /// String representation of PI Point query. Used to collect all PI Points in question from source server
+        /// </param>
+        /// <param name="piPointAttributes">
+        /// Optional: Contains key-value pairs of PI Point attributes to be defined during PI Point creation.
+        /// If no input is provided, default attributes are assumed
+        /// </param>
+        public void MigratePIPoints(string piPointQuery, Dictionary<string, object> piPointAttributes = null)
+        {
+            try
+            {
+                // collect all PIPoint objects based on point search
+                Logger.Log("Extracting PI Points that match the following query: " + piPointQuery);                
+                srcPIPointEnumerable = PIPoint.FindPIPoints(srcServer, piPointQuery);
+                Logger.Log("Found " + srcPIPointEnumerable.Count() + " PI Points matching the input query");
+                // create points on destination server based on parsed PIPoint names from enumerable object
+                // associate each PIPoint to be created with the attribute dict from piPointAttributes input param
+                Logger.Log("Creating PI Points on " + dstServer.Name);
+                dstServer.CreatePIPoints(srcPIPointEnumerable.Select(x => x.Name), piPointAttributes);
+                Logger.Log("PI Point migration completed successfully");
+            }
+            catch (Exception ex)
+            {
+                throw new System.Exception("Failed to create PI Points: " + ex.Message);
+            }
+            //PIPoint testt = piPointEnumerable.First();
+            //testt.LoadAttributes();
+            //object drAttrValue;
+            //IEnumerable<string> piPointAttr = testt.FindAttributeNames(null);
+            //foreach (string item in piPointAttr)
+            //{
+            //    drAttrValue = testt.GetAttribute(item);
+            //    Console.WriteLine("  {0} = '{1}'", item, drAttrValue);
+            //}
+        }
+
+        public void MigratePIPointData(DateTime startTime, DateTime endTime, string filterExpression = null)
+        {
+            // initialize AFValues object to store pi data from source server
+            AFValues piPointData;
+            // initialize AFTimeRange object whose datetime range is determined by the input parameters
+            AFTimeRange piPointRange = new AFTimeRange(startTime.ToUniversalTime(), endTime.ToUniversalTime());
+            Logger.Log("Migrating PI Point data from " + srcServer.Name + " to " + dstServer.Name +
+                       "within " + startTime.ToString() + " - " + endTime.ToString() + " range");
+            try
+            {
+                // loop through each PIPoint collected from source server
+                foreach (PIPoint piPoint in srcPIPointEnumerable)
+                {
+                    Logger.Log("Migrating " + piPoint.Name + " data");
+                    // create new instance of AFValues object to remove stale data
+                    piPointData = new AFValues();                    
+                    piPointData = piPoint.RecordedValues(
+                                    piPointRange,            // time range to collect pi data from
+                                    AFBoundaryType.Inside,   // collect data inside the specified time range
+                                    filterExpression,        // filter data based on PI Performance Equation syntax                 
+                                    false);                  // exclude filtered data
+                    // update PI Point values on the destination server 
+                    dstServer.UpdateValues(
+                                    piPointData,             // pi data collected for specified pi point + time range
+                                    AFUpdateOption.Replace); // insert pi data if it doesnt exist (replace otherwise)
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new System.Exception("Failed to migrate PI data: " + ex.Message);
+            }            
+        }
     }
 }
