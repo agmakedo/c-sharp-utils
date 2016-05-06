@@ -11,6 +11,11 @@ namespace Utility.Email
 {
     class Emailer
     {
+        // handle to smtp client object with specified SMTP host
+        private SmtpClient client;
+        // specify the message content.
+        private MailMessage message;
+
         private string clientServer;
         private string senderEmail;
         private string senderName;
@@ -18,14 +23,63 @@ namespace Utility.Email
         private string[] ccRecipients;
         private string localPath;
 
-        public Emailer(string client_server, string sender_email, string sender_name, string to_recips, string cc_recips, string local_path = null)
+        /// <summary>
+        /// Constructor for Emailer class
+        /// </summary>
+        /// /// <param name="_clientServer">
+        /// SMTP server
+        /// </param>
+        /// <param name="_senderEmail">
+        /// Email Address of sender
+        /// </param>
+        /// <param name="_senderName">
+        /// Sender's email address alias
+        /// </param>
+        /// <param name="_toRecipients">
+        /// Array of email addresses to be receiving message
+        /// </param>
+        /// <param name="_ccRecipients">
+        /// Array of email addresses to be Carbon-Copied on email message
+        /// </param>
+        /// <param name="_localPath">
+        /// Path to store email file locally before sending to SMTP server
+        /// </param>
+        public Emailer(string _clientServer, string _senderEmail, string _senderName, 
+            string _toRecipients, string _ccRecipients, string _localPath = null)
         {
-            clientServer = client_server;
-            senderEmail = sender_email;
-            senderName = sender_name;
-            toRecipients = to_recips.Split(',');
-            ccRecipients = cc_recips.Split(',');
-            localPath = local_path;    
+            clientServer = _clientServer;
+            senderEmail = _senderEmail;
+            senderName = _senderName;
+            toRecipients = (_toRecipients.Length > 0) ? _toRecipients.Split(',') : null;
+            ccRecipients = (_ccRecipients.Length > 0) ? _ccRecipients.Split(',') : null;
+            localPath = _localPath;                     
+        }
+
+        private void SetEmailHeader()
+        {
+            // handle to smtp client object with specified SMTP host
+            client = new SmtpClient(clientServer);
+            // specify the message content.
+            message = new MailMessage();
+
+            // add from recipients
+            message.From = new MailAddress(senderEmail, senderName, System.Text.Encoding.UTF8);
+            // add to recipients
+            if (toRecipients != null)
+            {
+                foreach (string toRecipient in toRecipients)
+                {
+                    message.To.Add(toRecipient.Trim());
+                }
+            }
+            // add carbon copy recipients
+            if (ccRecipients != null)
+            {
+                foreach (string ccRecipient in ccRecipients)
+                {
+                    message.CC.Add(ccRecipient.Trim());
+                }
+            }
         }
 
         /// <summary>
@@ -37,27 +91,12 @@ namespace Utility.Email
         /// <param name="body">
         /// content body of email
         /// </param>
-        /// <param name="attachment">
-        /// optional: filename/path of email attachment
+        /// <param name="attachments">
+        /// optional: filename/path of email attachment(s)
         /// </param>
         public void Email(string subject, string body, string[] attachments=null)
         {
-            // handle to smtp client object with specified SMTP host
-            SmtpClient client = new SmtpClient(clientServer);
-            // specify the message content.
-            MailMessage message = new MailMessage();
-            // add from recipients
-            message.From = new MailAddress(senderEmail, senderName, System.Text.Encoding.UTF8);
-            // add to recipients
-            foreach (string toRecipient in toRecipients)
-            {
-                message.To.Add(toRecipient.Trim());
-            }
-            // add carbon copy recipients
-            foreach (string ccRecipient in ccRecipients)
-            {
-                message.CC.Add(ccRecipient.Trim());
-            }
+            SetEmailHeader();
 
             // add attachment to mail
             if (attachments != null)

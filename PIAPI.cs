@@ -395,8 +395,11 @@ namespace Utility.PI
     {
         private PIServer srcServer;
         private PIServer dstServer;
-
+                
         private IEnumerable<PIPoint> srcPIPointEnumerable;
+        private IEnumerable<PIPoint> dstPIPointEnumerable;
+
+        public enum PIMigrationServers { Source, Destination };
 
         #region Constructor
         /// <summary>
@@ -444,66 +447,139 @@ namespace Utility.PI
         /// Optional: Contains key-value pairs of PI Point attributes to be defined during PI Point creation.
         /// If no input is provided, default attributes are assumed
         /// </param>
-        public void MigratePIPoints(string piPointQuery, Dictionary<string, object> piPointAttributes = null)
+        /// <param name="pageSize">
+        /// Optional: defines how many PI Points should be migrated per query
+        /// If no input is provided, default set to 10000
+        /// </param>
+        public void MigratePIPoints(string piPointQuery, Dictionary<string, object> piPointAttributes = null, int pageSize = 10000)
         {
             try
             {
+                // store PI Point names that will be migrated over to destination server
+                IEnumerable<String> srcPIPointNames;
+                // keep track of how many points have been migrated (used for paging which resolves potential timeout issue on PI)
+                int migratedPIPointCount = 0;
+
                 // collect all PIPoint objects based on point search
                 Logger.Log("Extracting PI Points that match the following query: " + piPointQuery);                
-                srcPIPointEnumerable = PIPoint.FindPIPoints(srcServer, piPointQuery);
+                srcPIPointEnumerable = PIPoint.FindPIPoints(srcServer, piPointQuery);                
                 Logger.Log("Found " + srcPIPointEnumerable.Count() + " PI Points matching the input query");
+
                 // create points on destination server based on parsed PIPoint names from enumerable object
                 // associate each PIPoint to be created with the attribute dict from piPointAttributes input param
                 Logger.Log("Creating PI Points on " + dstServer.Name);
-                dstServer.CreatePIPoints(srcPIPointEnumerable.Select(x => x.Name), piPointAttributes);
+                // page through PI Points until they have all been migrated 
+                do
+                {
+                    // collect PI Point names based on specified page size value. Ignore previously migrated points
+                    srcPIPointNames = srcPIPointEnumerable.Select(x => x.Name).Skip(migratedPIPointCount).Take(pageSize);
+                    // create collected PI points on destination server
+                    dstServer.CreatePIPoints(srcPIPointNames, piPointAttributes);
+                    // track how many points have been added                    
+                    migratedPIPointCount += srcPIPointNames.Count();
+                    Logger.Log(" PI Points creation count: " + migratedPIPointCount);
+                } while (migratedPIPointCount < srcPIPointEnumerable.Count());
+                
+                // collect handle to pi points created on destination server
+                dstPIPointEnumerable = PIPoint.FindPIPoints(dstServer, piPointQuery);
+                // if PI Point enumerables contain count mis-matches, this indicates that the destination server failed to create the specified PI Points
+                if (srcPIPointEnumerable.Count() != dstPIPointEnumerable.Count())
+                {
+                    throw new Exception("Source PIPoint count does not match that of the destination server");
+                }
                 Logger.Log("PI Point migration completed successfully");
             }
             catch (Exception ex)
             {
                 throw new System.Exception("Failed to create PI Points: " + ex.Message);
             }
-            //PIPoint testt = piPointEnumerable.First();
-            //testt.LoadAttributes();
-            //object drAttrValue;
-            //IEnumerable<string> piPointAttr = testt.FindAttributeNames(null);
-            //foreach (string item in piPointAttr)
-            //{
-            //    drAttrValue = testt.GetAttribute(item);
-            //    Console.WriteLine("  {0} = '{1}'", item, drAttrValue);
-            //}
         }
 
+        /// <summary>
+        /// Migrate PI data for each point to destination server by collecting PI Point data from the source server
+        /// then mapping those values to the destination PI Points (since they have mis-matching Point IDs)
+        /// </summary>
+        /// <param name="startTime">
+        /// DateTime object specifying start date to Migrate PI Point data from
+        /// </param>
+        /// <param name="endTime">
+        /// DateTime object specifying end date to Migrate PI Point data to
+        /// </param>
+        /// <param name="filterExpression">
+        /// Optional: string representation PI Performance Equation to filter PI Point Data. 
+        /// If no input is specified, no filter expression will be used
+        /// </param>
         public void MigratePIPointData(DateTime startTime, DateTime endTime, string filterExpression = null)
         {
-            // initialize AFValues object to store pi data from source server
-            AFValues piPointData;
-            // initialize AFTimeRange object whose datetime range is determined by the input parameters
-            AFTimeRange piPointRange = new AFTimeRange(startTime.ToUniversalTime(), endTime.ToUniversalTime());
-            Logger.Log("Migrating PI Point data from " + srcServer.Name + " to " + dstServer.Name +
-                       "within " + startTime.ToString() + " - " + endTime.ToString() + " range");
             try
             {
+                // initialize AFValues object to store pi data from source server
+                AFValues srcPIPointData, dstPIPointData;
+                // initialize AFTimeRange object whose datetime range is determined by the input parameters
+                AFTimeRange piPointRange = new AFTimeRange(startTime.ToUniversalTime(), endTime.ToUniversalTime());
+                Logger.Log("Migrating PI Point data from " + srcServer.Name + " to " + dstServer.Name +
+                           " within " + startTime.ToString() + " - " + endTime.ToString() + " range");
+
                 // loop through each PIPoint collected from source server
-                foreach (PIPoint piPoint in srcPIPointEnumerable)
+                foreach (PIPoint srcPIPoint in srcPIPointEnumerable)
                 {
-                    Logger.Log("Migrating " + piPoint.Name + " data");
+                    Logger.Log("Migrating " + srcPIPoint.Name + " data");
                     // create new instance of AFValues object to remove stale data
-                    piPointData = new AFValues();                    
-                    piPointData = piPoint.RecordedValues(
+                    srcPIPointData = new AFValues();
+                    dstPIPointData = new AFValues();
+                    // collect pi point data for specified time range from source server
+                    srcPIPointData = srcPIPoint.RecordedValues(
                                     piPointRange,            // time range to collect pi data from
                                     AFBoundaryType.Inside,   // collect data inside the specified time range
                                     filterExpression,        // filter data based on PI Performance Equation syntax                 
                                     false);                  // exclude filtered data
-                    // update PI Point values on the destination server 
-                    dstServer.UpdateValues(
-                                    piPointData,             // pi data collected for specified pi point + time range
-                                    AFUpdateOption.Replace); // insert pi data if it doesnt exist (replace otherwise)
+                    
+                    // Define PI AF Attribute for specified PI Point in destination server
+                    AFAttribute dstPIPointAttr = new AFAttribute(String.Format(@"\\{0}\{1}", dstServer, srcPIPoint.Name));
+                    // loop through all pi point source data and include it in destination pi point
+                    foreach (AFValue piPointValue in srcPIPointData)
+                    {
+                        dstPIPointData.Add(new AFValue(dstPIPointAttr, piPointValue.Value, 
+                                                       piPointValue.Timestamp, piPointValue.UOM));
+                    }
+
+                    // update PI Point values on the destination server                     
+                    AFErrors<AFValue> errorsWithBuffer = dstServer.UpdateValues(
+                        dstPIPointData,          // pi data collected for specified pi point + time range
+                        AFUpdateOption.Replace); // insert pi data if it doesnt exist (replace otherwise)
+                    // throw exception if insertion failed
+                    if (errorsWithBuffer != null) 
+                    { 
+                        throw new Exception("Unable to insert PI Point data to destination server"); 
+                    }
                 }
             }
             catch (Exception ex)
             {
                 throw new System.Exception("Failed to migrate PI data: " + ex.Message);
             }            
+        }
+
+        public Dictionary<string, object> GetPIPointAttributes(string piPointName, PIMigrationServers piMigrationServer)
+        {
+            Dictionary<string, object> piPointAttributes = new Dictionary<string, object>();
+            PIPoint piPoint = null;
+            if (piMigrationServer == PIMigrationServers.Source)
+            {
+                piPoint = PIPoint.FindPIPoint(srcServer, piPointName);
+            }
+            else if (piMigrationServer == PIMigrationServers.Destination)
+            {
+                piPoint = PIPoint.FindPIPoint(dstServer, piPointName);
+            }
+
+            piPoint.LoadAttributes();
+            foreach (string attributeName in piPoint.FindAttributeNames(null))
+            {
+                piPointAttributes.Add(attributeName, piPoint.GetAttribute(attributeName));
+            }
+
+            return piPointAttributes;
         }
     }
 }
