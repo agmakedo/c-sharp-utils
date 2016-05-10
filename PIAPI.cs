@@ -477,7 +477,7 @@ namespace Utility.PI
                     dstServer.CreatePIPoints(srcPIPointNames, piPointAttributes);
                     // track how many points have been added                    
                     migratedPIPointCount += srcPIPointNames.Count();
-                    Logger.Log(" PI Points creation count: " + migratedPIPointCount);
+                    Logger.Log("PI Points creation count: " + migratedPIPointCount);
                 } while (migratedPIPointCount < srcPIPointEnumerable.Count());
                 
                 // collect handle to pi points created on destination server
@@ -533,24 +533,43 @@ namespace Utility.PI
                                     AFBoundaryType.Inside,   // collect data inside the specified time range
                                     filterExpression,        // filter data based on PI Performance Equation syntax                 
                                     false);                  // exclude filtered data
-                    
-                    // Define PI AF Attribute for specified PI Point in destination server
-                    AFAttribute dstPIPointAttr = new AFAttribute(String.Format(@"\\{0}\{1}", dstServer, srcPIPoint.Name));
-                    // loop through all pi point source data and include it in destination pi point
-                    foreach (AFValue piPointValue in srcPIPointData)
+                                                          
+                    // only insert AFValues to destination server if there is a mismatch between the record count b/w src & dst
+                    // if the destination pi point contains as many records or more than the source pi point, no migration is performed
+                    if (dstPIPointEnumerable.First(x => x.Name == srcPIPoint.Name).RecordedValues(
+                        piPointRange,            // time range to collect pi data from
+                        AFBoundaryType.Inside,   // collect data inside the specified time range
+                        filterExpression,        // filter data based on PI Performance Equation syntax                 
+                        false).Count < srcPIPointData.Count)
                     {
-                        dstPIPointData.Add(new AFValue(dstPIPointAttr, piPointValue.Value, 
-                                                       piPointValue.Timestamp, piPointValue.UOM));
-                    }
 
-                    // update PI Point values on the destination server                     
-                    AFErrors<AFValue> errorsWithBuffer = dstServer.UpdateValues(
-                        dstPIPointData,          // pi data collected for specified pi point + time range
-                        AFUpdateOption.Replace); // insert pi data if it doesnt exist (replace otherwise)
-                    // throw exception if insertion failed
-                    if (errorsWithBuffer != null) 
-                    { 
-                        throw new Exception("Unable to insert PI Point data to destination server"); 
+                        // Define PI AF Attribute for specified PI Point in destination server
+                        AFAttribute dstPIPointAttr = new AFAttribute(String.Format(@"\\{0}\{1}", dstServer, srcPIPoint.Name));
+                        // loop through all pi point source data and include it in destination pi point
+                        foreach (AFValue piPointValue in srcPIPointData)
+                        {
+                            dstPIPointData.Add(new AFValue(dstPIPointAttr, piPointValue.Value,
+                                                           piPointValue.Timestamp, piPointValue.UOM));
+                        }
+
+                        // update PI Point values on the destination server                     
+                        AFErrors<AFValue> errorsWithBuffer = dstServer.UpdateValues(
+                            dstPIPointData,          // pi data collected for specified pi point + time range
+                            AFUpdateOption.Replace); // insert pi data if it doesnt exist (replace otherwise)
+                        // throw exception if insertion failed
+                        if (errorsWithBuffer != null)
+                        {
+                            throw new Exception("Unable to insert PI Point data to destination server");
+                        }
+                        else
+                        {
+                            Logger.Log("Successfully migrated " + dstPIPointData.Count + " archive values");
+                        }
+                    }
+                    else
+                    {
+                        Logger.Log(srcPIPoint.Name + " data appears to have been migrated already. Ignoring...", 
+                            (int)Logger.LOGLEVEL.WARN);
                     }
                 }
             }
