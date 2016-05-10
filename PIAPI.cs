@@ -459,33 +459,43 @@ namespace Utility.PI
                 IEnumerable<String> srcPIPointNames;
                 // keep track of how many points have been migrated (used for paging which resolves potential timeout issue on PI)
                 int migratedPIPointCount = 0;
-
-                // collect all PIPoint objects based on point search
-                Logger.Log("Extracting PI Points that match the following query: " + piPointQuery);                
-                srcPIPointEnumerable = PIPoint.FindPIPoints(srcServer, piPointQuery);                
+                
+                Logger.Log("Extracting PI Points that match the following query: " + piPointQuery);   
+                // collect pi points on source server             
+                srcPIPointEnumerable = PIPoint.FindPIPoints(srcServer, piPointQuery);
+                // collect pi points on destination server
+                dstPIPointEnumerable = PIPoint.FindPIPoints(dstServer, piPointQuery);
                 Logger.Log("Found " + srcPIPointEnumerable.Count() + " PI Points matching the input query");
 
-                // create points on destination server based on parsed PIPoint names from enumerable object
-                // associate each PIPoint to be created with the attribute dict from piPointAttributes input param
-                Logger.Log("Creating PI Points on " + dstServer.Name);
-                // page through PI Points until they have all been migrated 
-                do
-                {
-                    // collect PI Point names based on specified page size value. Ignore previously migrated points
-                    srcPIPointNames = srcPIPointEnumerable.Select(x => x.Name).Skip(migratedPIPointCount).Take(pageSize);
-                    // create collected PI points on destination server
-                    dstServer.CreatePIPoints(srcPIPointNames, piPointAttributes);
-                    // track how many points have been added                    
-                    migratedPIPointCount += srcPIPointNames.Count();
-                    Logger.Log("PI Points creation count: " + migratedPIPointCount);
-                } while (migratedPIPointCount < srcPIPointEnumerable.Count());
-                
-                // collect handle to pi points created on destination server
-                dstPIPointEnumerable = PIPoint.FindPIPoints(dstServer, piPointQuery);
-                // if PI Point enumerables contain count mis-matches, this indicates that the destination server failed to create the specified PI Points
+                // ensure that pi points don't already exist before attempting to create them
                 if (srcPIPointEnumerable.Count() != dstPIPointEnumerable.Count())
                 {
-                    throw new Exception("Source PIPoint count does not match that of the destination server");
+                    // create points on destination server based on parsed PIPoint names from enumerable object
+                    // associate each PIPoint to be created with the attribute dict from piPointAttributes input param
+                    Logger.Log("Creating PI Points on " + dstServer.Name);
+                    // page through PI Points until they have all been migrated 
+                    do
+                    {
+                        // collect PI Point names based on specified page size value. Ignore previously migrated points
+                        srcPIPointNames = srcPIPointEnumerable.Select(x => x.Name).Skip(migratedPIPointCount).Take(pageSize);
+                        // create collected PI points on destination server
+                        dstServer.CreatePIPoints(srcPIPointNames, piPointAttributes);
+                        // track how many points have been added                    
+                        migratedPIPointCount += srcPIPointNames.Count();
+                        Logger.Log("PI Points creation count: " + migratedPIPointCount);
+                    } while (migratedPIPointCount < srcPIPointEnumerable.Count());
+
+                    // re-collect pi points on destination server to confirm successful migration
+                    dstPIPointEnumerable = PIPoint.FindPIPoints(dstServer, piPointQuery);
+                    // if PI Point enumerables contain count mis-matches, this indicates that the destination server failed to create the specified PI Points
+                    if (srcPIPointEnumerable.Count() != dstPIPointEnumerable.Count())
+                    {
+                        throw new Exception("Source PIPoint count does not match that of the destination server");
+                    }
+                }
+                else
+                {
+                    Logger.Log("Specified PI Points appear to have been migrated already", (int)Logger.LOGLEVEL.WARN);
                 }
                 Logger.Log("PI Point migration completed successfully");
             }
@@ -515,6 +525,8 @@ namespace Utility.PI
             {
                 // initialize AFValues object to store pi data from source server
                 AFValues srcPIPointData, dstPIPointData;
+                //
+                Double dstCount;
                 // initialize AFTimeRange object whose datetime range is determined by the input parameters
                 AFTimeRange piPointRange = new AFTimeRange(startTime.ToUniversalTime(), endTime.ToUniversalTime());
                 Logger.Log("Migrating PI Point data from " + srcServer.Name + " to " + dstServer.Name +
@@ -562,7 +574,7 @@ namespace Utility.PI
                             throw new Exception("Unable to insert PI Point data to destination server");
                         }
                         else
-                        {
+                        {                            
                             Logger.Log("Successfully migrated " + dstPIPointData.Count + " archive values");
                         }
                     }
