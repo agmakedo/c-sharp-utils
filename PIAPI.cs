@@ -9,6 +9,7 @@ using OSIsoft.AF.PI;
 using OSIsoft.AF.Time;
 using OSIsoft.AF.Data;
 using Utility.Log;
+using System.IO;
 
 namespace Utility.PI
 {
@@ -19,13 +20,13 @@ namespace Utility.PI
         // ENUM class determines methodology type when developering for PI
         private enum PI_TYPE { AF, DA };
         private PI_TYPE piType = PI_TYPE.AF;
-        
+
         // used when connecting to PI AF server
         private PISystem AFServer;
-        private AFDatabase AFDB;       
-       
+        private AFDatabase AFDB;
+
         // used when connecting to PI DA Server
-        private PIServer DAServer;    
+        private PIServer DAServer;
         #endregion
 
         #region Public Members
@@ -52,7 +53,7 @@ namespace Utility.PI
         /// String representation of PI AF Server
         /// </param>
         public void ConnectToAssetFramework(string piAFServer)
-        {            
+        {
             try
             {
                 // Attmepts to establish connection with AF Server
@@ -112,6 +113,158 @@ namespace Utility.PI
         }
         #endregion
 
+        #region Collect PI Servers/Systems/Databases
+        public string[] GetPISystemNames()
+        {
+            try
+            {
+                PISystems piSystems = new PISystems();
+                string[] piSystemNames = new string[piSystems.Count];
+
+                for (int i = 0; i < piSystems.Count; i++)
+                {
+                    piSystemNames[i] = piSystems[i].Name;
+                }
+                return piSystemNames;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception(ex.Message);
+            }
+        }
+
+        public string[] GetAFDatabaseNames()
+        {
+            try
+            {
+                AFDatabases piDBs = AFServer.Databases;
+                string[] piDBNames = new string[piDBs.Count];
+
+                for (int i = 0; i < piDBs.Count; i++)
+                {
+                    piDBNames[i] = piDBs[i].Name;
+                }
+                return piDBNames;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception(ex.Message);
+            }
+        }
+
+        public string[] GetAFTemplateNames()
+        {
+            try
+            {
+                AFElementTemplates piTemplates = AFDB.ElementTemplates;
+                string[] piTemplateNames = new string[piTemplates.Count];
+
+                for (int i = 0; i < piTemplates.Count; i++)
+                {
+                    piTemplateNames[i] = piTemplates[i].Name;
+                }
+                return piTemplateNames;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception(ex.Message);
+            }
+        }
+
+        public string[] GetAFTemplateElementNames(string afTemplateName)
+        {
+            try
+            {
+                AFNamedCollectionList<AFBaseElement> AFElementsCollection =  AFDB.ElementTemplates[afTemplateName].FindInstantiatedElements(false,
+                                                                                                                            AFSortField.Name,
+                                                                                                                            AFSortOrder.Ascending,
+                                                                                                                            10000);
+                string[] piElementNames = new string[AFElementsCollection.Count];
+
+                for (int i = 0; i < AFElementsCollection.Count; i++)
+                {
+                    piElementNames[i] = AFElementsCollection[i].Name;
+                }
+                return piElementNames;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception(ex.Message);
+            }
+        }
+
+        public string[] GetAFTemplateAttributes(string afTemplateName, string dataRefType = null)
+        {
+            try
+            {
+                AFAttributeTemplates piAttributeTemplates = AFDB.ElementTemplates[afTemplateName].AttributeTemplates;
+                StringBuilder piTemplateAttributeNames = new StringBuilder();
+
+                foreach (AFAttributeTemplate piTemplateAttribute in piAttributeTemplates)
+                {
+                    // if data reference type is specified, only add specific data types
+                    if (dataRefType != null)
+                    {
+                        if (piTemplateAttribute.DataReference != null  &&
+                            piTemplateAttribute.DataReference.Name.Contains(dataRefType))
+                        {
+                            if (piTemplateAttributeNames.Length > 0)
+                                piTemplateAttributeNames.Append(",");
+                            piTemplateAttributeNames.Append(piTemplateAttribute.Name);
+                        }
+                    }
+                    else
+                    {
+                        if (piTemplateAttributeNames.Length > 0)
+                            piTemplateAttributeNames.Append(",");
+                        piTemplateAttributeNames.Append(piTemplateAttribute.Name);
+                    }
+                }
+                return piTemplateAttributeNames.ToString().Split(',');
+            }
+            catch (Exception ex)
+            {
+                throw new Exception(ex.Message);
+            }
+        }
+
+        public string[] GetAFElementAttributes(string afTemplate, string afElement, string dataRefType)
+        {
+            try
+            {                
+                AFAttributes piElementAttributes = AFDB.ElementTemplates[afTemplate].Elements[afElement].Attributes;
+                StringBuilder piElementAttributeNames = new StringBuilder();
+
+                foreach (AFAttribute piElementAttribute in piElementAttributes)
+                {                    
+                    // if data reference type is specified, only add specific data types
+                    if (dataRefType != null)
+                    {
+                        if (piElementAttribute.DataReference != null && 
+                            piElementAttribute.DataReference.Name.Contains(dataRefType))
+                        {
+                            if (piElementAttributeNames.Length > 0)
+                                piElementAttributeNames.Append(",");
+                            piElementAttributeNames.Append(piElementAttribute.Name);
+                        }
+                    }
+                    else
+                    {
+                        if (piElementAttributeNames.Length > 0)
+                            piElementAttributeNames.Append(",");
+                        piElementAttributeNames.Append(piElementAttribute.Name);
+                    }
+                }
+                return piElementAttributeNames.ToString().Split(',');
+            }
+            catch (Exception ex)
+            {
+                throw new Exception(ex.Message);
+            }
+        }
+
+
+        #endregion
 
         #region PI Data Archive C.R.U.D Methods
         public void InsertDataArchiveRecord(string pointName, object value, string timestamp)
@@ -177,11 +330,11 @@ namespace Utility.PI
         /// Optional: Maximum amount of elements capable of being queried at a time (Default set to 10000 records/query)
         /// </param>
         public void FindElementsByTemplate(string templateName, PIFunction piFunction = null, int pageSize = 10000)
-        {          
+        {
             int currentElementCount = 0; // defines the current amount of elements collected
             int totalElementCount;       // defines the total amount of elements collected
 
-            Logger.Log("Searching for all AF Elements with " + templateName + " template");            
+            Logger.Log("Searching for all AF Elements with " + templateName + " template");
             do
             {
                 AFElementCollection = AFElement.FindElementsByTemplate(
@@ -224,7 +377,7 @@ namespace Utility.PI
         {
             List<string> afAttrNames = new List<string>();
 
-            foreach(AFAttribute afAttr in GetElementAttributes(elementID)) 
+            foreach (AFAttribute afAttr in GetElementAttributes(elementID))
             {
                 afAttrNames.Add(afAttr.Name);
             }
@@ -256,9 +409,9 @@ namespace Utility.PI
         /// </param>
         public string GetElementAttributeValueTimestamp(string elementID, string attributeName, string targetValue, int startInterval = -365, int endInterval = 0, int recursionLimit = 5)
         {
-            if (startInterval > 0 || endInterval > 0) 
-            { 
-                throw new Exception("This method analyzes historical time series data. Please use negative integers when specifying desired time range"); 
+            if (startInterval > 0 || endInterval > 0)
+            {
+                throw new Exception("This method analyzes historical time series data. Please use negative integers when specifying desired time range");
             }
             // Check to see if recursion limit has been reached
             if (recursionLimit > 0)
@@ -276,14 +429,14 @@ namespace Utility.PI
                     }
                 }
                 // shift time interval based on startInterval day count and repeat looping procedure. Limit recursion attempts based on specified input parameter
-                return GetElementAttributeValueTimestamp(elementID, 
-                                                         attributeName, 
-                                                         targetValue, 
-                                                         startInterval + startInterval, 
-                                                         endInterval + startInterval, 
+                return GetElementAttributeValueTimestamp(elementID,
+                                                         attributeName,
+                                                         targetValue,
+                                                         startInterval + startInterval,
+                                                         endInterval + startInterval,
                                                          recursionLimit - 1);
             }
-            else 
+            else
             {
                 // returning this means that the targetValue could not be found in the AF Element's Time Series data
                 return "Indefinite";
@@ -307,7 +460,7 @@ namespace Utility.PI
                 // Loop through all AF values found within specified timeframe
                 foreach (AFValue afValue in GetElementAttribute(elementID, attributeName).GetValues(myTimeRange, 0, null).Reverse<AFValue>())
                 {
-                    
+
                     // return timestamp if targetValue has been found
                     if (!afValue.Value.ToString().Equals(invalidValue))
                     {
@@ -338,13 +491,13 @@ namespace Utility.PI
         /// <param name="attributeName">
         /// String representation of AF attribute name
         /// </param>
-        private AFAttribute GetElementAttribute(string elementID, string attributeName) 
+        private AFAttribute GetElementAttribute(string elementID, string attributeName)
         {
             return AFElement.FindElement(AFServer, Guid.Parse(elementID)).Attributes[attributeName];
         }
 
 
-        private AFAttributes GetElementAttributes(string elementID) 
+        private AFAttributes GetElementAttributes(string elementID)
         {
             return AFElement.FindElement(AFServer, Guid.Parse(elementID)).Attributes;
         }
@@ -375,7 +528,7 @@ namespace Utility.PI
             }
             catch (Exception)
             { }
-            
+
         }
 
 
@@ -395,7 +548,7 @@ namespace Utility.PI
     {
         private PIServer srcServer;
         private PIServer dstServer;
-                
+
         private IEnumerable<PIPoint> srcPIPointEnumerable;
         private IEnumerable<PIPoint> dstPIPointEnumerable;
 
@@ -405,7 +558,7 @@ namespace Utility.PI
         /// <summary>
         /// Empty constructor
         /// </summary>
-        public PIMigrator() {}
+        public PIMigrator() { }
         #endregion
 
         /// <summary>
@@ -459,8 +612,8 @@ namespace Utility.PI
                 IEnumerable<String> srcPIPointNames;
                 // keep track of how many points have been migrated (used for paging which resolves potential timeout issue on PI)
                 int migratedPIPointCount = 0;
-                
-                Logger.Log("Extracting PI Points that match the following query: " + piPointQuery);   
+
+                Logger.Log("Extracting PI Points that match the following query: " + piPointQuery);
                 // collect pi points on source server             
                 srcPIPointEnumerable = PIPoint.FindPIPoints(srcServer, piPointQuery);
                 // collect pi points on destination server
@@ -525,8 +678,7 @@ namespace Utility.PI
             {
                 // initialize AFValues object to store pi data from source server
                 AFValues srcPIPointData, dstPIPointData;
-                //
-                Double dstCount;
+
                 // initialize AFTimeRange object whose datetime range is determined by the input parameters
                 AFTimeRange piPointRange = new AFTimeRange(startTime.ToUniversalTime(), endTime.ToUniversalTime());
                 Logger.Log("Migrating PI Point data from " + srcServer.Name + " to " + dstServer.Name +
@@ -545,7 +697,7 @@ namespace Utility.PI
                                     AFBoundaryType.Inside,   // collect data inside the specified time range
                                     filterExpression,        // filter data based on PI Performance Equation syntax                 
                                     false);                  // exclude filtered data
-                                                          
+
                     // only insert AFValues to destination server if there is a mismatch between the record count b/w src & dst
                     // if the destination pi point contains as many records or more than the source pi point, no migration is performed
                     if (dstPIPointEnumerable.First(x => x.Name == srcPIPoint.Name).RecordedValues(
@@ -574,13 +726,13 @@ namespace Utility.PI
                             throw new Exception("Unable to insert PI Point data to destination server");
                         }
                         else
-                        {                            
+                        {
                             Logger.Log("Successfully migrated " + dstPIPointData.Count + " archive values");
                         }
                     }
                     else
                     {
-                        Logger.Log(srcPIPoint.Name + " data appears to have been migrated already. Ignoring...", 
+                        Logger.Log(srcPIPoint.Name + " data appears to have been migrated already. Ignoring...",
                             (int)Logger.LOGLEVEL.WARN);
                     }
                 }
@@ -588,7 +740,7 @@ namespace Utility.PI
             catch (Exception ex)
             {
                 throw new System.Exception("Failed to migrate PI data: " + ex.Message);
-            }            
+            }
         }
 
         public Dictionary<string, object> GetPIPointAttributes(string piPointName, PIMigrationServers piMigrationServer)
@@ -611,6 +763,22 @@ namespace Utility.PI
             }
 
             return piPointAttributes;
+        }
+    }
+
+    class PIConvert
+    {
+        public static AFTimeRange ToAFTimeRange(string startTime, string endTime)
+        {
+            try
+            {                
+                return new AFTimeRange(Convert.ToDateTime(startTime).ToUniversalTime(), 
+                                       Convert.ToDateTime(endTime).ToUniversalTime());                
+            }
+            catch (Exception ex)
+            {
+                throw new Exception(ex.Message);
+            }
         }
     }
 }
