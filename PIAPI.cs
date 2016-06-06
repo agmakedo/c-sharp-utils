@@ -2,14 +2,12 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Configuration;
 using OSIsoft.AF;
 using OSIsoft.AF.Asset;
 using OSIsoft.AF.PI;
 using OSIsoft.AF.Time;
 using OSIsoft.AF.Data;
 using Utility.Log;
-using System.IO;
 
 namespace Utility.PI
 {
@@ -175,10 +173,11 @@ namespace Utility.PI
         {
             try
             {
-                AFNamedCollectionList<AFBaseElement> AFElementsCollection =  AFDB.ElementTemplates[afTemplateName].FindInstantiatedElements(false,
-                                                                                                                            AFSortField.Name,
-                                                                                                                            AFSortOrder.Ascending,
-                                                                                                                            10000);
+                AFNamedCollectionList<AFBaseElement> AFElementsCollection =  
+                    AFDB.ElementTemplates[afTemplateName].FindInstantiatedElements(false,
+                                                                                   AFSortField.Name,
+                                                                                   AFSortOrder.Ascending,
+                                                                                   10000);
                 string[] piElementNames = new string[AFElementsCollection.Count];
 
                 for (int i = 0; i < AFElementsCollection.Count; i++)
@@ -263,6 +262,19 @@ namespace Utility.PI
             }
         }
 
+        //GetElementAttributes
+        public string[] GetElementAttributeNames(string elementID)
+        {
+            List<string> afAttrNames = new List<string>();
+
+            foreach (AFAttribute afAttr in GetElementAttributes(elementID))
+            {
+                afAttrNames.Add(afAttr.Name);
+            }
+            // Find element based on unique ID, extract specific attribute's value and convert result to string
+            return afAttrNames.ToArray<string>();
+        }
+
 
         #endregion
 
@@ -282,36 +294,6 @@ namespace Utility.PI
             }
         }
 
-        #endregion
-
-
-
-
-
-        #region AF Element Tree Builder
-        private void ConstructElementRoot(string rootElementName)
-        {
-            // attempts to add root element to AF database. Statement will catch if duplicate element is found
-            try
-            {
-                Logger.Log("Creating root element: " + rootElementName);
-                AFDB.Elements.Add(rootElementName);
-                CommitChanges();
-            }
-            catch (Exception)
-            {
-                Logger.Log("root element " + rootElementName + " already exists");
-            }
-        }
-        #endregion  
-
-        #region AF Model Commit Change
-        private void CommitChanges()
-        {
-            Logger.Log("Applying and checking in changes to AF database");
-            AFDB.ApplyChanges();
-            AFDB.CheckIn();
-        }
         #endregion
 
 
@@ -372,18 +354,7 @@ namespace Utility.PI
             return GetElementAttribute(elementID, attributeName).GetValue().ToString();
         }
 
-        //GetElementAttributes
-        public string[] GetElementAttributeNames(string elementID)
-        {
-            List<string> afAttrNames = new List<string>();
 
-            foreach (AFAttribute afAttr in GetElementAttributes(elementID))
-            {
-                afAttrNames.Add(afAttr.Name);
-            }
-            // Find element based on unique ID, extract specific attribute's value and convert result to string
-            return afAttrNames.ToArray<string>();
-        }
 
 
         /// <summary>
@@ -530,18 +501,6 @@ namespace Utility.PI
             { }
 
         }
-
-
-        #region Disconnect From AF Server
-        /// <summary>
-        /// Disconnect from AF Server
-        /// </summary>
-        public void Close()
-        {
-            Logger.Log("Closing connection to PI AF server...");
-            AFServer.Disconnect();
-        }
-        #endregion
     }
 
     class PIMigrator
@@ -678,7 +637,7 @@ namespace Utility.PI
             {
                 // initialize AFValues object to store pi data from source server
                 AFValues srcPIPointData, dstPIPointData;
-
+                double dstPIPointCount;
                 // initialize AFTimeRange object whose datetime range is determined by the input parameters
                 AFTimeRange piPointRange = new AFTimeRange(startTime.ToUniversalTime(), endTime.ToUniversalTime());
                 Logger.Log("Migrating PI Point data from " + srcServer.Name + " to " + dstServer.Name +
@@ -697,14 +656,15 @@ namespace Utility.PI
                                     AFBoundaryType.Inside,   // collect data inside the specified time range
                                     filterExpression,        // filter data based on PI Performance Equation syntax                 
                                     false);                  // exclude filtered data
-
-                    // only insert AFValues to destination server if there is a mismatch between the record count b/w src & dst
+                    // collect the pi point count of the destination server
+                    dstPIPointCount = dstPIPointEnumerable.First(x => x.Name == srcPIPoint.Name).RecordedValues(
+                                    piPointRange,            // time range to collect pi data from
+                                    AFBoundaryType.Inside,   // collect data inside the specified time range
+                                    filterExpression,        // filter data based on PI Performance Equation syntax                 
+                                    false).Count;
+                    // only insert AFValues to destination server if the dest. server has no populated point data or it is less than a 99% margin of the source server's point data count 
                     // if the destination pi point contains as many records or more than the source pi point, no migration is performed
-                    if (dstPIPointEnumerable.First(x => x.Name == srcPIPoint.Name).RecordedValues(
-                        piPointRange,            // time range to collect pi data from
-                        AFBoundaryType.Inside,   // collect data inside the specified time range
-                        filterExpression,        // filter data based on PI Performance Equation syntax                 
-                        false).Count < srcPIPointData.Count)
+                    if (dstPIPointCount == 0 || (dstPIPointCount / srcPIPointData.Count < .99))
                     {
 
                         // Define PI AF Attribute for specified PI Point in destination server
