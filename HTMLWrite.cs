@@ -64,8 +64,8 @@ namespace Utility.HTMLWrite
         
         public static void EndHTML(int TagCount = 2)
         {
-          foreach(int count in TagCount)
-              Writer.RenderEndTag();
+          for(int i = 0; i< TagCount; i++)
+            Writer.RenderEndTag();
         }
              
     }
