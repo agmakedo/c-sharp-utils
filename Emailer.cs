@@ -1,84 +1,74 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Net.Mail;
 using System.IO;
-using System.Configuration;
-using System.Threading.Tasks;
 
 namespace Utility.Email
 {
-    class Emailer
+    public class Email
     {
         // handle to smtp client object with specified SMTP host
-        private SmtpClient client;
+        private SmtpClient smtpClient;
         // specify the message content.
-        private MailMessage message;
+        private MailMessage mailMessage;
 
-        private string clientServer;
-        private string senderEmail;
-        private string senderName;
-        private string[] toRecipients;
-        private string[] ccRecipients;
-        private string localPath;
+        private readonly string smtpServer;
+        private readonly string sender;
+        private readonly string senderAlias;
+        private readonly string[] toRecipients;
+        private readonly string[] ccRecipients;
+        private readonly string localPath;
 
-        /// <summary>
-        /// Constructor for Emailer class
-        /// </summary>
-        /// /// <param name="_clientServer">
-        /// SMTP server
-        /// </param>
-        /// <param name="_senderEmail">
-        /// Email Address of sender
-        /// </param>
-        /// <param name="_senderName">
-        /// Sender's email address alias
-        /// </param>
-        /// <param name="_toRecipients">
-        /// Array of email addresses to be receiving message
-        /// </param>
-        /// <param name="_ccRecipients">
-        /// Array of email addresses to be Carbon-Copied on email message
-        /// </param>
-        /// <param name="_localPath">
-        /// Path to store email file locally before sending to SMTP server
-        /// </param>
-        public Emailer(string _clientServer, string _senderEmail, string _senderName, 
-            string _toRecipients, string _ccRecipients, string _localPath = null)
+        private Email(string smtpServer, string sender, string senderAlias,
+                      string[] toRecipients, string[] ccRecipients, string localPath)
         {
-            clientServer = _clientServer;
-            senderEmail = _senderEmail;
-            senderName = _senderName;
-            toRecipients = (_toRecipients.Length > 0) ? _toRecipients.Split(',') : null;
-            ccRecipients = (_ccRecipients.Length > 0) ? _ccRecipients.Split(',') : null;
-            localPath = _localPath;                     
+            this.smtpServer = smtpServer;
+            this.sender = sender;
+            this.senderAlias = senderAlias;
+            this.toRecipients = toRecipients;
+            this.ccRecipients = ccRecipients;
+            this.localPath = localPath;
+
+            ConfigureMailServer();
+            ConfigureMailMessage();
         }
 
-        private void SetEmailHeader()
+        private void ConfigureMailServer()
         {
             // handle to smtp client object with specified SMTP host
-            client = new SmtpClient(clientServer);
-            // specify the message content.
-            message = new MailMessage();
+            smtpClient = new SmtpClient(smtpServer);          
+        }
 
-            // add from recipients
-            message.From = new MailAddress(senderEmail, senderName, System.Text.Encoding.UTF8);
-            // add to recipients
-            if (toRecipients != null)
+        private void ConfigureMailMessage()
+        {
+            try
             {
-                foreach (string toRecipient in toRecipients)
+                // specify the message content.
+                mailMessage = new MailMessage();
+
+                // specify from recipient
+                mailMessage.From = new MailAddress(sender, senderAlias, System.Text.Encoding.UTF8);
+                
+                // specify To recipients
+                if (toRecipients != null)
                 {
-                    message.To.Add(toRecipient.Trim());
+                    foreach (string toRecipient in toRecipients)
+                    {
+                        mailMessage.To.Add(toRecipient);
+                    }
+                }
+                
+                // specify carbon copy recipients
+                if (ccRecipients != null)
+                {
+                    foreach (string ccRecipient in ccRecipients)
+                    {
+                        mailMessage.CC.Add(ccRecipient);
+                    }
                 }
             }
-            // add carbon copy recipients
-            if (ccRecipients != null)
-            {
-                foreach (string ccRecipient in ccRecipients)
-                {
-                    message.CC.Add(ccRecipient.Trim());
-                }
+            catch(Exception ex)
+            {                
+                throw new Exception("Unable to construct email: " + ex.Message, ex.InnerException);
             }
         }
 
@@ -89,47 +79,103 @@ namespace Utility.Email
         /// title of email message
         /// </param>
         /// <param name="body">
-        /// content body of email
+        /// body of email
         /// </param>
         /// <param name="attachments">
         /// optional: filename/path of email attachment(s)
         /// </param>
-        public void Email(string subject, string body, string[] attachments=null)
+        public void SendMessage(string subject, string body, string[] attachments = null)
         {
-            SetEmailHeader();
+            // include subject of email
+            mailMessage.Subject = subject;
+            mailMessage.SubjectEncoding = System.Text.Encoding.UTF8;
 
-            // add attachment to mail
+            // include body of email
+            mailMessage.Body = body;
+            mailMessage.IsBodyHtml = true;
+
+            // include attachments to email
             if (attachments != null)
             {
                 foreach (string attachment in attachments)
                 {
-                    message.Attachments.Add(new Attachment(attachment));
+                    mailMessage.Attachments.Add(new Attachment(attachment));
                 }
             }
-
-            // include body of email
-            message.Body = body;
-            message.IsBodyHtml = true;
-            // include subject of email
-            message.Subject = subject;
-            message.SubjectEncoding = System.Text.Encoding.UTF8;
-
+            
             // construct local copy of email message
             // no handle to rename file. If desired, investigate FileSystemWatcher library
             if (localPath != null)
             {
-                client.DeliveryMethod = SmtpDeliveryMethod.SpecifiedPickupDirectory;
-                client.PickupDirectoryLocation = Path.GetFullPath(localPath);
+                smtpClient.DeliveryMethod = SmtpDeliveryMethod.SpecifiedPickupDirectory;
+                smtpClient.PickupDirectoryLocation = Path.GetFullPath(localPath);
+                smtpClient.Send(mailMessage);
             }
 
-            client.Send(message);
-
             // send email message over smtp network
-            client.DeliveryMethod = SmtpDeliveryMethod.Network;
-            client.Send(message);
+            smtpClient.DeliveryMethod = SmtpDeliveryMethod.Network;
+            smtpClient.Send(mailMessage);
 
-            // clean message object once send is complete
-            message.Dispose();
+            // clean message object once send is complete            
+            mailMessage.Dispose();                        
         }
+
+        /// <summary>
+        /// Builder object allows user to construct customizable email class  
+        /// </summary>
+        public class ComposeHeader
+        {
+            private string smtpServer;
+            private string sender;
+            private string senderAlias;
+            private string[] toRecipients;
+            private string[] ccRecipients;
+            private string localPath;
+
+            public ComposeHeader() { }
+
+            public ComposeHeader SMTPServer(string smtpServer)
+            {
+                this.smtpServer = smtpServer;
+                return this;
+            }
+
+            public ComposeHeader Sender(string sender)
+            {
+                this.sender = sender;
+                return this;
+            }
+
+            public ComposeHeader Sender(string sender, string senderAlias)
+            {
+                this.sender = sender;
+                this.senderAlias = senderAlias;
+                return this;
+            }
+
+            public ComposeHeader To(string[] toRecipients)
+            {
+                this.toRecipients = toRecipients;
+                return this;
+            }
+
+            public ComposeHeader Cc(string[] ccRecipients)
+            {
+                this.ccRecipients = ccRecipients;
+                return this;
+            }
+
+            public ComposeHeader StoreLocalCopy(string localPath)
+            {
+                this.localPath = localPath;
+                return this;
+            }
+
+            public Email Bind()
+            {
+                return new Email(smtpServer, sender, senderAlias,
+                                 toRecipients, ccRecipients, localPath);
+            }
+        }      
     }
 }
